@@ -2,13 +2,13 @@
   <img src="./assets/avatar.jpeg" alt="Project Redis Docker Avatar" width="200">
 </p>
 
-# Automated GitLab Runner Infrastructure
+# Ready-to-Use GitLab Runner Docker Infrastructure
 
 This repository provides a standardized, flexible, and automated solution for deploying GitLab Runners using Docker and Docker Compose. It is designed to be easily configured for any environment (development, staging, production) by simply creating and defining a single `.env` file.
 
 ## Table of Contents
 
-- [Automated GitLab Runner Infrastructure](#automated-gitlab-runner-infrastructure)
+- [Ready-to-Use GitLab Runner Docker Infrastructure](#ready-to-use-gitlab-runner-docker-infrastructure)
   - [Table of Contents](#table-of-contents)
   - [Overview \& Features](#overview--features)
   - [Prerequisites](#prerequisites)
