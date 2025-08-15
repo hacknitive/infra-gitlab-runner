@@ -1,86 +1,114 @@
 #!/bin/bash
 # ==============================================================================
-# GitLab Runner Registration Script
+# GitLab Runner Registration and Configuration Script
 # ==============================================================================
 #
 # DESCRIPTION:
-# This script automates the GitLab Runner registration process. It is designed
-# to be run after the 'docker-compose up -d' command has started the runner
-# service. It reads configuration from the .env file and executes the
-# non-interactive 'gitlab-runner register' command inside the running container.
+# This script fully automates the GitLab Runner setup process. It performs
+# three key actions in sequence:
+# 1. Sets the global 'concurrent' value in the runner's main config.toml.
+# 2. Registers a new runner with your GitLab instance using settings from .env.
+# 3. Restarts the runner container to apply all configuration changes.
 #
 # USAGE:
-# ./register-runner.sh
+# Ensure the .env file is complete, then run: ./register-runner.sh
 #
 # ==============================================================================
-# --- Script Configuration and Safety ---
-# Exit immediately if a command exits with a non-zero status. This prevents
-# unexpected behavior and ensures the script stops if any step fails.
+
+# Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Environment Validation ---
-# 1. Check if the .env file exists.
+# --- Step 0: Environment Validation ---
+echo "▶️ [Step 0/4] Validating environment..."
+
 if [ ! -f ".env" ]; then
-    echo "❌ Error: .env file not found."
-    echo "Please copy an example .env file to .env and fill in all the required values."
+    echo "❌ FATAL: .env file not found. Please copy .env.example to .env and fill it out."
     exit 1
 fi
 
-# 2. Load environment variables from the .env file into the current shell session.
+# Load environment variables from .env file
 export $(grep -v '^#' .env | xargs)
 
-# 3. Check for the presence of ALL required variables.
-# An error will be thrown if any of these are empty or not set.
-if [ -z "$GITLAB_URL" ] || \
-   [ -z "$REGISTRATION_TOKEN" ] || \
-   [ -z "$RUNNER_DESCRIPTION" ] || \
-   [ -z "$RUNNER_TAGS" ] || \
-   [ -z "$RUNNER_EXECUTOR" ] || \
-   [ -z "$DOCKER_IMAGE" ] || \
-   [ -z "$RUN_UNTAGGED_JOBS" ] || \
-   [ -z "$IS_LOCKED_TO_PROJECT" ] || \
-   [ -z "$CONTAINER_NAME" ] || \
-   [ -z "$CONFIG_VOLUME_PATH" ]; then
-    echo "❌ Error: One or more required environment variables are not set in the .env file."
-    echo "Please ensure all variables are defined."
-    exit 1
-fi
+# Define all required variables in an array
+REQUIRED_VARS=(
+    "GITLAB_URL"
+    "REGISTRATION_TOKEN"
+    "RUNNER_DESCRIPTION"
+    "RUNNER_TAGS"
+    "RUNNER_EXECUTOR"
+    "RUNNER_DEFAULT_DOCKER_IMAGE"
+    "RUN_UNTAGGED_JOBS"
+    "IS_LOCKED_TO_PROJECT"
+    "CONTAINER_NAME"
+    "CONFIG_VOLUME_PATH"
+    "RUNNER_CONCURRENT_JOBS"
+    "DOCKER_PULL_POLICY"
+    "DOCKER_HELPER_IMAGE"
+)
 
-# --- Pre-Registration Checks ---
-# Check if the target Docker container is running.
-if [ ! "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
-    echo "❌ Error: The runner container named '${CONTAINER_NAME}' is not running."
-    echo "Please run 'docker-compose up -d' first."
-    exit 1
-fi
+# Loop through the array to check if each variable is set
+for VAR in "${REQUIRED_VARS[@]}"; do
+    if [ -z "${!VAR}" ]; then
+        echo "❌ FATAL: Environment variable '$VAR' is not set in the .env file."
+        exit 1
+    fi
+done
 
-echo "✅ Pre-flight checks passed. Starting registration process..."
+echo "✅ Environment validation passed."
 echo "---"
+
+# --- Pre-flight Check: Ensure runner container is running ---
+echo "▶️ [Step 1/4] Checking for running runner container..."
+if [ ! "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "❌ FATAL: The runner container named '${CONTAINER_NAME}' is not running."
+    echo "   Please run 'docker compose up -d' first."
+    exit 1
+fi
+echo "✅ Container '${CONTAINER_NAME}' is running."
+echo "---"
+
+# --- Step 2: Configure Global Settings in config.toml ---
+echo "▶️ [Step 2/4] Setting global concurrent jobs to '$RUNNER_CONCURRENT_JOBS'..."
+# This command executes inside the running container to modify the config.toml file.
+# It sets the global concurrency limit before registration.
+docker exec "$CONTAINER_NAME" \
+  sed -i "s/concurrent = .*/concurrent = ${RUNNER_CONCURRENT_JOBS}/" /etc/gitlab-runner/config.toml
+
+# Verify the change
+CONCURRENT_VALUE=$(docker exec "$CONTAINER_NAME" grep "concurrent =" /etc/gitlab-runner/config.toml)
+echo "✅ Global configuration updated: ${CONCURRENT_VALUE}"
+echo "---"
+
+# --- Step 3: Register the New Runner ---
+echo "▶️ [Step 3/4] Registering the new runner with GitLab..."
 echo "   GitLab URL: $GITLAB_URL"
 echo "   Description: $RUNNER_DESCRIPTION"
-echo "   Tags: $RUNNER_TAGS"
 echo "   Executor: $RUNNER_EXECUTOR"
-echo "   Container: $CONTAINER_NAME"
-echo "---"
 
-# --- Registration Command ---
-echo "🚀 Registering the runner with GitLab..."
-
-# Execute the registration command inside the Docker container.
-# This command now strictly uses the variables from the .env file with no defaults.
-docker exec -it "$CONTAINER_NAME" gitlab-runner register \
+# Execute the registration command non-interactively inside the container.
+docker exec "$CONTAINER_NAME" gitlab-runner register \
   --non-interactive \
   --url "$GITLAB_URL" \
   --registration-token "$REGISTRATION_TOKEN" \
   --executor "$RUNNER_EXECUTOR" \
-  --docker-image "$DOCKER_IMAGE" \
+  --docker-image "$RUNNER_DEFAULT_DOCKER_IMAGE" \
   --description "$RUNNER_DESCRIPTION" \
   --tag-list "$RUNNER_TAGS" \
   --run-untagged="$RUN_UNTAGGED_JOBS" \
   --locked="$IS_LOCKED_TO_PROJECT" \
-  --access-level="not_protected"
+  --access-level="not_protected" \
+  --docker-pull-policy "$DOCKER_PULL_POLICY" \
+  --docker-helper-image "$DOCKER_HELPER_IMAGE"
 
+echo "✅ Registration command sent."
 echo "---"
-echo "✅ Success! Registration Complete."
-echo "The runner is now registered and connected to your GitLab instance."
-echo "You can verify its status in the GitLab UI (Admin > CI/CD > Runners)."
+
+# --- Step 4: Restart the Runner to Apply All Changes ---
+echo "▶️ [Step 4/4] Restarting the runner container to apply new registration..."
+docker restart "$CONTAINER_NAME" > /dev/null
+echo "✅ Container restarted successfully."
+echo "---"
+
+echo "🎉 SUCCESS! Full configuration and registration complete."
+echo "The runner has been restarted and should now be visible in your GitLab UI."
+echo "Please verify its status and settings in the GitLab Runners admin area."

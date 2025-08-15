@@ -1,28 +1,46 @@
-# GitLab Runner Docker Compose File
-# This file defines the GitLab Runner service. It is designed to be generic
-# and reusable, with all specific configurations loaded from an external .env file.
-# This approach follows best practices by separating configuration from infrastructure logic.
-
+# File: docker-compose.yml
+# ==============================================================================
+# GitLab Runner Docker Compose Service Definition
+# ==============================================================================
+#
+# DESCRIPTION:
+# This file defines the GitLab Runner service using Docker Compose. It is
+# designed to be generic and reusable, with all specific configurations
+# loaded from the .env file. This approach follows best practices by
+# separating configuration (the 'what') from infrastructure logic (the 'how').
+#
+# USAGE:
+# docker-compose up -d
+#
+# ==============================================================================
 services:
   gitlab-runner:
-    # Use the latest official GitLab Runner image from Docker Hub.
-    image: gitlab/gitlab-runner:latest
-    
-    # Set the container name dynamically from the .env file.
-    # Docker Compose will fail if this variable is not set in .env.
-    container_name: "${CONTAINER_NAME}"
-    
-    # Always restart the runner unless it is explicitly stopped. This ensures
-    # the runner service is resilient and comes back online after a server reboot or crash.
-    restart: unless-stopped
-    
-    volumes:
-      # --- Critical Volume 1: Docker Socket ---
-      # Mount the host's Docker socket into the container. This is essential
-      # for the 'docker' executor to function.
-      - /var/run/docker.sock:/var/run/docker.sock
+    # The official GitLab Runner image to use. The version is specified in the
+    # .env file to ensure version consistency and conscious upgrades.
+    image: "${RUNNER_IMAGE_NAME}"
 
-      # --- Critical Volume 2: Persistent Configuration ---
-      # Mount a host directory to persist the runner's configuration (config.toml).
-      # Docker Compose will fail if this variable is not set in .env.
+    # A unique, human-readable name for the container, loaded from .env.
+    # This makes it easy to identify and manage the runner container (e.g., 'docker logs gitlab-runner-prod').
+    container_name: "${CONTAINER_NAME}"
+
+    # Defines the restart policy. 'unless-stopped' is a robust choice, ensuring
+    # the runner automatically restarts after a server reboot or an unexpected crash,
+    # but not if it was deliberately stopped by a user.
+    restart: "${RESTART_POLICY}"
+
+    volumes:
+      # --- Volume 1: Docker Socket (CRITICAL) ---
+      # This mounts the host's Docker socket into the container.
+      # It is ESSENTIAL for the 'docker' executor to work, as it allows the
+      # runner container to start other Docker containers (the actual CI jobs)
+      # on the host machine.
+      # SECURITY NOTE: Granting access to the Docker socket is equivalent to
+      # giving root access to the host system. Only run trusted CI jobs.
+      - "${DOCKER_SOCKET_VOLUME_PATH}:/var/run/docker.sock"
+
+      # --- Volume 2: Persistent Configuration (CRITICAL) ---
+      # This mounts a directory from the host into the container where the runner's
+      # configuration file (config.toml) is stored. This makes the runner's
+      # configuration persistent across container restarts, recreations, and
+      # image upgrades. The container itself remains stateless.
       - "${CONFIG_VOLUME_PATH}:/etc/gitlab-runner"
