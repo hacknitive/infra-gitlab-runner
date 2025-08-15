@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/12419223/184135940-53738148-9397-4223-8884-263a0335b22d.png" alt="GitLab Runner Logo" width="200">
+  <img src="./assets/avatar.jpeg" alt="GitLab Runner Logo" width="200">
 </p>
 
 <h1 align="center">Automated GitLab Runner with Docker Compose</h1>
