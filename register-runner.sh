@@ -6,8 +6,8 @@
 # DESCRIPTION:
 # This script fully automates the GitLab Runner setup process. It performs
 # three key actions in sequence:
-# 1. Sets the global 'concurrent' value in the runner's main config.toml.
-# 2. Registers a new runner with your GitLab instance using settings from .env.
+# 1. Registers a new runner, which creates the initial config.toml.
+# 2. Sets the global 'concurrent' value in the newly created config.toml.
 # 3. Restarts the runner container to apply all configuration changes.
 #
 # USAGE:
@@ -20,7 +20,6 @@ set -e
 
 # --- Step 0: Environment Validation ---
 echo "▶️ [Step 0/4] Validating environment..."
-
 if [ ! -f ".env" ]; then
     echo "❌ FATAL: .env file not found. Please copy .env.example to .env and fill it out."
     exit 1
@@ -39,6 +38,7 @@ REQUIRED_VARS=(
     "RUNNER_DEFAULT_DOCKER_IMAGE"
     "RUN_UNTAGGED_JOBS"
     "IS_LOCKED_TO_PROJECT"
+    "RUNNER_IMAGE_NAME"
     "CONTAINER_NAME"
     "CONFIG_VOLUME_PATH"
     "RUNNER_CONCURRENT_JOBS"
@@ -53,7 +53,6 @@ for VAR in "${REQUIRED_VARS[@]}"; do
         exit 1
     fi
 done
-
 echo "✅ Environment validation passed."
 echo "---"
 
@@ -67,20 +66,9 @@ fi
 echo "✅ Container '${CONTAINER_NAME}' is running."
 echo "---"
 
-# --- Step 2: Configure Global Settings in config.toml ---
-echo "▶️ [Step 2/4] Setting global concurrent jobs to '$RUNNER_CONCURRENT_JOBS'..."
-# This command executes inside the running container to modify the config.toml file.
-# It sets the global concurrency limit before registration.
-docker exec "$CONTAINER_NAME" \
-  sed -i "s/concurrent = .*/concurrent = ${RUNNER_CONCURRENT_JOBS}/" /etc/gitlab-runner/config.toml
-
-# Verify the change
-CONCURRENT_VALUE=$(docker exec "$CONTAINER_NAME" grep "concurrent =" /etc/gitlab-runner/config.toml)
-echo "✅ Global configuration updated: ${CONCURRENT_VALUE}"
-echo "---"
-
-# --- Step 3: Register the New Runner ---
-echo "▶️ [Step 3/4] Registering the new runner with GitLab..."
+# --- Step 2: Register the New Runner ---
+# We do this first because the register command creates the config.toml file.
+echo "▶️ [Step 2/4] Registering the new runner with GitLab..."
 echo "   GitLab URL: $GITLAB_URL"
 echo "   Description: $RUNNER_DESCRIPTION"
 echo "   Executor: $RUNNER_EXECUTOR"
@@ -100,11 +88,22 @@ docker exec "$CONTAINER_NAME" gitlab-runner register \
   --docker-pull-policy "$DOCKER_PULL_POLICY" \
   --docker-helper-image "$DOCKER_HELPER_IMAGE"
 
-echo "✅ Registration command sent."
+echo "✅ Registration command sent. config.toml is now created."
+echo "---"
+
+# --- Step 3: Configure Global Settings in config.toml ---
+# Now that the file is guaranteed to exist, we can safely modify it.
+echo "▶️ [Step 3/4] Setting global concurrent jobs to '$RUNNER_CONCURRENT_JOBS'..."
+docker exec "$CONTAINER_NAME" \
+  sed -i "s/concurrent = .*/concurrent = ${RUNNER_CONCURRENT_JOBS}/" /etc/gitlab-runner/config.toml
+
+# Verify the change
+CONCURRENT_VALUE=$(docker exec "$CONTAINER_NAME" grep "concurrent =" /etc/gitlab-runner/config.toml)
+echo "✅ Global configuration updated: ${CONCURRENT_VALUE}"
 echo "---"
 
 # --- Step 4: Restart the Runner to Apply All Changes ---
-echo "▶️ [Step 4/4] Restarting the runner container to apply new registration..."
+echo "▶️ [Step 4/4] Restarting the runner container to apply all changes..."
 docker restart "$CONTAINER_NAME" > /dev/null
 echo "✅ Container restarted successfully."
 echo "---"
