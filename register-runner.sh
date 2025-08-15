@@ -86,7 +86,8 @@ docker exec "$CONTAINER_NAME" gitlab-runner register \
   --locked="$IS_LOCKED_TO_PROJECT" \
   --access-level="not_protected" \
   --docker-pull-policy "$DOCKER_PULL_POLICY" \
-  --docker-helper-image "$DOCKER_HELPER_IMAGE"
+  --docker-helper-image "$DOCKER_HELPER_IMAGE" \
+  --docker-volumes "/var/run/docker.sock:/var/run/docker.sock"
 
 echo "✅ Registration command sent. config.toml is now created."
 echo "---"
